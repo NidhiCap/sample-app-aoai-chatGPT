@@ -11,6 +11,10 @@
   "dependencies": {
     "@fluentui/react": "^8.105.3",
     "@fluentui/react-icons": "^2.0.195",
+    "@fluentui/react-tags-preview":"latest",
+    "@fluentui/react-components":"^9.0.0",
+    "axios": "^1.4.0",
+    "react-dropzone": "^14.2.3",
     "lodash": "^4.17.21",
     "lodash-es": "^4.17.21",
     "react": "^18.2.0",

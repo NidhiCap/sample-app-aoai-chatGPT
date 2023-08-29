@@ -5,6 +5,7 @@ import requests
 import openai
 from flask import Flask, Response, request, jsonify, send_from_directory
 from dotenv import load_dotenv
+from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 
 load_dotenv()
 
@@ -41,10 +42,10 @@ AZURE_SEARCH_QUERY_TYPE = os.environ.get("AZURE_SEARCH_QUERY_TYPE")
 AZURE_SEARCH_PERMITTED_GROUPS_COLUMN = os.environ.get("AZURE_SEARCH_PERMITTED_GROUPS_COLUMN")
 
 # AOAI Integration Settings
-AZURE_OPENAI_RESOURCE = os.environ.get("AZURE_OPENAI_RESOURCE")
-AZURE_OPENAI_MODEL = os.environ.get("AZURE_OPENAI_MODEL")
+AZURE_OPENAI_RESOURCE = os.environ.get("AZURE_OPENAI_RESOURCE","sanofi-poc-openai")
+AZURE_OPENAI_MODEL = os.environ.get("AZURE_OPENAI_MODEL","gpt-35-turbo-16k")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_KEY = os.environ.get("AZURE_OPENAI_KEY")
+AZURE_OPENAI_KEY = os.environ.get("AZURE_OPENAI_KEY","fb535bda4935403eb13dd3c7d2c96f81")
 AZURE_OPENAI_TEMPERATURE = os.environ.get("AZURE_OPENAI_TEMPERATURE", 0)
 AZURE_OPENAI_TOP_P = os.environ.get("AZURE_OPENAI_TOP_P", 1.0)
 AZURE_OPENAI_MAX_TOKENS = os.environ.get("AZURE_OPENAI_MAX_TOKENS", 1000)
@@ -313,5 +314,55 @@ def conversation():
         logging.exception("Exception in /conversation")
         return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
-    app.run()
+# Set your Azure Blob Storage connection string
+connection_string = 'DefaultEndpointsProtocol=https;AccountName=sanofiblob;AccountKey=stz8p6ohtXYdl9ayCofqSBbqoMyuiW+5bIS/wzjiVaAi78N00eCjv7ysF7wKPsUdUYuFf0XSqgsI+AStY6X97g==;EndpointSuffix=core.windows.net'
+container_name = 'data'
+
+if not os.path.exists('uploads'):
+    os.makedirs('uploads')
+
+def upload_to_azure_blob(blob_client, local_file_path):
+    with open(local_file_path, 'rb') as data:
+        blob_client.upload_blob(data, overwrite=True)
+
+blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+container_client = blob_service_client.get_container_client(container_name)
+
+@app.route('/upload', methods=['POST'])
+def upload_files():
+    uploaded_files = request.files.getlist('files')
+    for uploaded_file in uploaded_files:
+        if uploaded_file.filename != '':
+            local_file_path = os.path.join('uploads', uploaded_file.filename)
+            uploaded_file.save(local_file_path)
+
+            blob_name = uploaded_file.filename
+            blob_client = container_client.get_blob_client(blob_name)
+            upload_to_azure_blob(blob_client, local_file_path)
+
+            os.remove(local_file_path)
+    blob_list = [blob.name for blob in container_client.list_blobs()]
+    return jsonify(blob_list)
+
+@app.route('/getdata', methods=['GET'])
+def getdata():
+    blob_list = [blob.name for blob in container_client.list_blobs()]
+    return jsonify(blob_list)
+
+@app.route('/delete/<blob_name>', methods=['POST'])
+def delete(blob_name):
+    blob_client = container_client.get_blob_client(blob_name)
+    blob_client.delete_blob()
+    blob_list = [blob.name for blob in container_client.list_blobs()]
+    return jsonify(blob_list)
+
+@app.route('/deleteall', methods=['POST'])
+def deleteall():
+    blob_list = container_client.list_blobs()
+    for blob in blob_list:
+        blob_client = container_client.get_blob_client(blob.name)
+        blob_client.delete_blob()
+    return jsonify({'message': 'Files deleted successfully'})
+
+if __name__ == '__main__':
+    app.run(debug=True)
